@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+###############################################################################
+##
+## hl - simple text highlighter (literal + regex support)
+##
+## DESCRIPTION:
+##   Reads stdin and highlights matching text using ANSI colors.
+##
+##   Supports two modes:
+##     1. Literal match (default)
+##        hl word:red
+##
+##     2. Regex match (wrap pattern in /.../)
+##        hl '/H[0-9]/':blue
+##
+## USAGE:
+##   echo "text" | hl pattern:color [pattern:color ...]
+##
+## EXAMPLES:
+##   echo "The car is an H1 model" | hl car:red
+##   echo "The car is an H1 model" | hl '/H[0-9]/':blue
+##   echo "The car is an H1 model" | hl car:red model:green '/H[0-9]/':blue
+##
+## COLORS:
+##   black, red, green, yellow, blue, magenta, cyan, white
+##   bright_red, bright_green, bright_yellow, bright_blue,
+##   bright_magenta, bright_cyan
+##
+## NOTES:
+##   - Regex uses sed BRE syntax (not PCRE)
+##   - Literal mode escapes regex metacharacters
+##   - Multiple patterns are applied sequentially
+##   - All bright_COLOR colors can use alias of bCOLOR.
+##     - example:  bright_red is the same as bred
+##
+###############################################################################
+
+set -euo pipefail
+
+input=$(cat)
+output=$input
+
+###############################################################################
+## Color setup (tput or ANSI)
+###############################################################################
+if command -v tput >/dev/null 2>&1 && tput setaf 1 >/dev/null 2>&1; then
+    RESET=$(tput sgr0)
+    BOLD=$(tput bold)
+
+    BLACK=$(tput setaf 0)
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+    YELLOW=$(tput setaf 3)
+    BLUE=$(tput setaf 4)
+    MAGENTA=$(tput setaf 5)
+    CYAN=$(tput setaf 6)
+    WHITE=$(tput setaf 7)
+
+    BRIGHT_RED=$BOLD$RED
+    BRIGHT_GREEN=$BOLD$GREEN
+    BRIGHT_YELLOW=$BOLD$YELLOW
+    BRIGHT_BLUE=$BOLD$BLUE
+    BRIGHT_MAGENTA=$BOLD$MAGENTA
+    BRIGHT_CYAN=$BOLD$CYAN
+else
+    RESET=$'\033[0m'
+    BOLD=$'\033[1m'
+
+    BLACK=$'\033[0;30m'
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    BLUE=$'\033[0;34m'
+    MAGENTA=$'\033[0;35m'
+    CYAN=$'\033[0;36m'
+    WHITE=$'\033[0;37m'
+
+    BRIGHT_RED=$'\033[1;31m'
+    BRIGHT_GREEN=$'\033[1;32m'
+    BRIGHT_YELLOW=$'\033[1;33m'
+    BRIGHT_BLUE=$'\033[1;34m'
+    BRIGHT_MAGENTA=$'\033[1;35m'
+    BRIGHT_CYAN=$'\033[1;36m'
+fi
+
+###############################################################################
+## Color resolver
+###############################################################################
+get_color() {
+    case "$1" in
+        black) echo "$BLACK" ;;
+        red) echo "$RED" ;;
+        green) echo "$GREEN" ;;
+        yellow) echo "$YELLOW" ;;
+        blue) echo "$BLUE" ;;
+        magenta) echo "$MAGENTA" ;;
+        cyan) echo "$CYAN" ;;
+        white) echo "$WHITE" ;;
+
+        bright_red | bred) echo "$BRIGHT_RED" ;;
+        bright_green | bgreen) echo "$BRIGHT_GREEN" ;;
+        bright_yellow | byellow) echo "$BRIGHT_YELLOW" ;;
+        bright_blue | bblue) echo "$BRIGHT_BLUE" ;;
+        bright_magenta | bmagenta) echo "$BRIGHT_MAGENTA" ;;
+        bright_cyan | bcyan) echo "$BRIGHT_CYAN" ;;
+
+        *) echo "$RESET" ;;
+    esac
+}
+
+###############################################################################
+## Escape literal strings for sed
+###############################################################################
+escape_sed() {
+    printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
+}
+
+###############################################################################
+## Apply highlights
+###############################################################################
+for pair in "$@"; do
+    word=${pair%%:*}
+    color=${pair##*:}
+
+    code=$(get_color "$color")
+
+    # Detect regex mode: /pattern/
+    if [[ "$word" == /*/ ]]; then
+        pattern="${word#/}"
+        pattern="${pattern%/}"
+    else
+        pattern=$(escape_sed "$word")
+    fi
+
+    output=$(printf '%s' "$output" |
+        sed "s|${pattern}|${code}&${RESET}|g")
+done
+
+printf '%s\n' "$output"
