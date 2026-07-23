@@ -4,7 +4,9 @@
 
 **A tiny, zero-dependency text highlighter for your terminal.**
 
-Pipe anything into `hl` and color-highlight words, tokens, or regex patterns with ANSI colors — great for `tail -f` logs, grepping, and general terminal life.
+Pipe anything into `hl` and color-highlight words, tokens, or regex patterns
+with ANSI colors - great for `tail -f` logs, grepping, and general terminal
+life.
 
 [![Bash](https://img.shields.io/badge/bash-%3E%3D4.0-4EAA25?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Shell Script](https://img.shields.io/badge/shell-script-89e051)](https://github.com/bytebeast/hl)
@@ -26,17 +28,20 @@ Pipe anything into `hl` and color-highlight words, tokens, or regex patterns wit
 
 ## Features
 
-- **Literal or regex matching** — plain words by default, or wrap a pattern in `/.../` for `sed` BRE regex
+- **Literal or regex matching** - plain words by default, or wrap a pattern in
+  `/.../` for `sed` BRE regex
 - **Multiple patterns per call**, applied left to right
-- **14 colors**, including bright variants with short aliases (`bred`, `bgreen`, ...)
-- **Zero dependencies** — pure Bash + `sed` + `tput`/ANSI, nothing to install
-- **Pipe-friendly** — reads stdin, writes stdout, plays nicely with `tail`, `grep`, `journalctl`, CI logs, anything text-based
+- **14 colors**, including bright variants with short aliases (`bred`, `bgreen`,
+  ...)
+- **Zero dependencies** - pure Bash + `sed` + `tput`/ANSI, nothing to install
+- **Pipe-friendly** - reads stdin, writes stdout, plays nicely with `tail`,
+  `grep`, `journalctl`, CI logs, anything text-based
 
 ## Requirements
 
 - `bash` (4.0+)
 - `sed`
-- `tput` (optional — falls back to raw ANSI escape codes if unavailable)
+- `tput` (optional - falls back to raw ANSI escape codes if unavailable)
 
 No package manager, no runtime, no build step.
 
@@ -61,7 +66,7 @@ ln -s "$(pwd)/hl" /usr/local/bin/hl   # or anywhere on your $PATH
 Verify it's on your `PATH`:
 
 ```bash
-hl <<< "installed correctly" 
+hl <<< "installed correctly"
 ```
 
 ## Usage
@@ -71,7 +76,8 @@ echo "text" | hl pattern:color [pattern:color ...]
 ```
 
 - **Literal match** (default): `hl word:red`
-- **Regex match** (wrap the pattern in `/.../`, `sed` BRE syntax): `hl '/H[0-9]/':blue`
+- **Regex match** (wrap the pattern in `/.../`, `sed` BRE syntax):
+  `hl '/H[0-9]/':blue`
 
 ### Examples
 
@@ -94,27 +100,32 @@ grep -i "timeout" server.log | hl timeout:bred
 
 ## Colors
 
-| Name       | Alias   | Name          | Alias    |
-|------------|---------|---------------|----------|
-| `black`    |         | `bright_red`     | `bred`     |
-| `red`      |         | `bright_green`   | `bgreen`   |
-| `green`    |         | `bright_yellow`  | `byellow`  |
-| `yellow`   |         | `bright_blue`    | `bblue`    |
-| `blue`     |         | `bright_magenta` | `bmagenta` |
-| `magenta`  |         | `bright_cyan`    | `bcyan`    |
-| `cyan`     |         |               |          |
-| `white`    |         |               |          |
+| Name      | Alias | Name             | Alias      |
+| --------- | ----- | ---------------- | ---------- |
+| `black`   |       | `bright_red`     | `bred`     |
+| `red`     |       | `bright_green`   | `bgreen`   |
+| `green`   |       | `bright_yellow`  | `byellow`  |
+| `yellow`  |       | `bright_blue`    | `bblue`    |
+| `blue`    |       | `bright_magenta` | `bmagenta` |
+| `magenta` |       | `bright_cyan`    | `bcyan`    |
+| `cyan`    |       |                  |            |
+| `white`   |       |                  |            |
 
 ## Notes
 
-- Regex mode uses `sed` **BRE** syntax, not PCRE (no `\d`, `\w`, etc. — use POSIX character classes like `[0-9]` and `[[:alpha:]]`).
-- Literal mode automatically escapes regex metacharacters, so special characters in plain words are matched safely.
-- Patterns are applied sequentially, so later patterns can highlight inside text already touched by earlier ones.
-- Colors gracefully degrade: if `tput` isn't available, `hl` falls back to raw ANSI escape sequences.
+- Regex mode uses `sed` **BRE** syntax, not PCRE (no `\d`, `\w`, etc. - use
+  POSIX character classes like `[0-9]` and `[[:alpha:]]`).
+- Literal mode automatically escapes regex metacharacters, so special characters
+  in plain words are matched safely.
+- Patterns are applied sequentially, so later patterns can highlight inside text
+  already touched by earlier ones.
+- Colors gracefully degrade: if `tput` isn't available, `hl` falls back to raw
+  ANSI escape sequences.
 
 ## Contributing
 
-Issues and pull requests are welcome. If you're proposing a larger change, please open an issue first to discuss what you'd like to change.
+Issues and pull requests are welcome. If you're proposing a larger change,
+please open an issue first to discuss what you'd like to change.
 
 ## License
 
@@ -124,6 +135,8 @@ Released under the [MIT License](LICENSE).
 
 <div align="center">
 
-If `hl` saved you some `grep -A -B` gymnastics or made your logs easier to read, **please consider giving it a ⭐ star** — it helps other people find the project and keeps it maintained.
+If `hl` saved you some `grep -A -B` gymnastics or made your logs easier to read,
+**please consider giving it a ⭐ star** - it helps other people find the project
+and keeps it maintained.
 
 </div>
