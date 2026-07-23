@@ -22,17 +22,7 @@ Pipe anything into `hl` and color-highlight words, tokens, or regex patterns wit
 
 ## Preview
 
-```console
-$ echo "The car is an H1 model" | hl car:red model:green '/H[0-9]/':blue
-The car is an H1 model
-#     ^^^ red        ^^ blue    ^^^^^ green
-```
-
-```console
-$ tail -f app.log | hl ERROR:bred WARN:byellow
-12:04:01  ERROR  db connection lost      # bright red
-12:04:03  WARN   retrying (1/3)          # bright yellow
-```
+![curl-timings](images/hl-social-preview.png)
 
 ## Features
 
