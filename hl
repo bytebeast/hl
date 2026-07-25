@@ -20,25 +20,60 @@
 ##   echo "The car is an H1 model" | hl car:red
 ##   echo "The car is an H1 model" | hl '/H[0-9]/':blue
 ##   echo "The car is an H1 model" | hl car:red model:green '/H[0-9]/':blue
+##   echo "meeting at 09:30"       | hl '/[0-9]\{2\}:[0-9]\{2\}/':bcyan
+##   echo "cat and dog"            | hl '/cat\|dog/':yellow
 ##
 ## COLORS:
 ##   black, red, green, yellow, blue, magenta, cyan, white
 ##   bright_red, bright_green, bright_yellow, bright_blue,
 ##   bright_magenta, bright_cyan
+##   All bright_COLOR colors can use alias of bCOLOR (bright_red == bred).
 ##
 ## NOTES:
-##   - Regex uses sed BRE syntax (not PCRE)
-##   - Literal mode escapes regex metacharacters
-##   - Multiple patterns are applied sequentially
-##   - All bright_COLOR colors can use alias of bCOLOR.
-##     - example:  bright_red is the same as bred
+##   - Regex uses sed BRE syntax (not PCRE). \| \+ \? are GNU extensions
+##     and will not work on BSD/macOS sed.
+##   - Literal mode escapes all BRE metacharacters, so 'a.b' matches only
+##     the three-character string "a.b".
+##   - Patterns may contain ':' - the color is taken from the LAST colon.
+##   - Patterns are applied in order; overlapping matches nest, and the
+##     outer color is restored when an inner highlight ends.
+##
+## KNOWN LIMITATIONS:
+##   - A '$' anchor in a later pattern may not match if an earlier pattern
+##     already highlighted the end of the line.
+##   - Patterns using '.' or negated classes like '[^x]' can match the
+##     internal marker bytes used to track highlights.
+##   - The /.../ syntax is ambiguous with paths: '/usr/:red' is read as the
+##     regex 'usr', not the literal string "/usr/". Escape the slashes
+##     ('\/usr\/:red') or match a substring instead.
+##   - Maximum 12 pattern:color pairs per invocation.
 ##
 ###############################################################################
 
 set -euo pipefail
 
-input=$(cat)
-output=$input
+###############################################################################
+## Internal marker bytes
+##
+## Highlights are inserted as single non-printing marker bytes, then rendered
+## to ANSI escapes in one final pass. This stops later patterns from matching
+## the printable characters of escape codes emitted by earlier patterns
+## (e.g. '/[0-9]/' matching the "31" inside "\033[0;31m").
+###############################################################################
+CLOSE=$'\020'                                        # ends a highlight
+MARKS=$'\021\022\023\024\025\026\027\030\031\032\034\035'   # one per pattern
+SEP=$'\037'                                          # color-list separator
+D=$'\036'                                            # sed s/// delimiter
+STRIP='\020-\032\034-\037'                           # scrubbed from input
+
+MAX_PATTERNS=${#MARKS}
+
+usage() {
+    sed -n '3,45p' "$0" | sed 's/^#*//; s/^ //'
+    exit "${1:-0}"
+}
+
+die() { printf 'hl: %s\n' "$1" >&2; exit 2; }
 
 ###############################################################################
 ## Color setup (tput or ANSI)
@@ -84,56 +119,110 @@ else
 fi
 
 ###############################################################################
-## Color resolver
+## Color resolver - returns non-zero for an unknown name
 ###############################################################################
 get_color() {
     case "$1" in
-        black) echo "$BLACK" ;;
-        red) echo "$RED" ;;
-        green) echo "$GREEN" ;;
-        yellow) echo "$YELLOW" ;;
-        blue) echo "$BLUE" ;;
-        magenta) echo "$MAGENTA" ;;
-        cyan) echo "$CYAN" ;;
-        white) echo "$WHITE" ;;
+        black)                   printf '%s' "$BLACK" ;;
+        red)                     printf '%s' "$RED" ;;
+        green)                   printf '%s' "$GREEN" ;;
+        yellow)                  printf '%s' "$YELLOW" ;;
+        blue)                    printf '%s' "$BLUE" ;;
+        magenta)                 printf '%s' "$MAGENTA" ;;
+        cyan)                    printf '%s' "$CYAN" ;;
+        white)                   printf '%s' "$WHITE" ;;
 
-        bright_red | bred) echo "$BRIGHT_RED" ;;
-        bright_green | bgreen) echo "$BRIGHT_GREEN" ;;
-        bright_yellow | byellow) echo "$BRIGHT_YELLOW" ;;
-        bright_blue | bblue) echo "$BRIGHT_BLUE" ;;
-        bright_magenta | bmagenta) echo "$BRIGHT_MAGENTA" ;;
-        bright_cyan | bcyan) echo "$BRIGHT_CYAN" ;;
+        bright_red | bred)       printf '%s' "$BRIGHT_RED" ;;
+        bright_green | bgreen)   printf '%s' "$BRIGHT_GREEN" ;;
+        bright_yellow | byellow) printf '%s' "$BRIGHT_YELLOW" ;;
+        bright_blue | bblue)     printf '%s' "$BRIGHT_BLUE" ;;
+        bright_magenta | bmagenta) printf '%s' "$BRIGHT_MAGENTA" ;;
+        bright_cyan | bcyan)     printf '%s' "$BRIGHT_CYAN" ;;
 
-        *) echo "$RESET" ;;
+        *) return 1 ;;
     esac
 }
 
 ###############################################################################
-## Escape literal strings for sed
+## Escape a literal string for use as a BRE
+##
+## Escapes every BRE metacharacter: \ . * [ ^ $
+## ']' needs no escaping because '[' is already escaped, so no bracket
+## expression can ever be opened.
 ###############################################################################
-escape_sed() {
-    printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
+escape_bre() {
+    printf '%s' "$1" | sed 's/[\.*^$[]/\\&/g'
 }
 
 ###############################################################################
-## Apply highlights
+## Parse arguments
 ###############################################################################
+[[ $# -eq 0 ]] && { [[ -t 0 ]] && usage 0; exec cat; }
+
+case "${1:-}" in
+    -h | --help) usage 0 ;;
+esac
+
+[[ $# -gt $MAX_PATTERNS ]] && die "too many patterns (max $MAX_PATTERNS)"
+
+sed_args=()
+colors=""
+idx=0
+
 for pair in "$@"; do
-    word=${pair%%:*}
+    [[ "$pair" == *:* ]] || die "missing color in '$pair' (expected pattern:color)"
+
+    # Split on the LAST colon so patterns may contain colons.
+    word=${pair%:*}
     color=${pair##*:}
 
-    code=$(get_color "$color")
+    [[ -n "$word" ]] || die "empty pattern in '$pair'"
 
-    # Detect regex mode: /pattern/
-    if [[ "$word" == /*/ ]]; then
-        pattern="${word#/}"
-        pattern="${pattern%/}"
+    code=$(get_color "$color") || die "unknown color '$color' in '$pair'"
+
+    # Strip marker bytes a user could otherwise inject.
+    word=$(printf '%s' "$word" | tr -d "$STRIP")
+
+    # Regex mode: /pattern/ - needs at least one character between slashes.
+    if [[ ${#word} -ge 3 && "$word" == /*/ ]]; then
+        pattern=${word#/}
+        pattern=${pattern%/}
     else
-        pattern=$(escape_sed "$word")
+        pattern=$(escape_bre "$word")
     fi
 
-    output=$(printf '%s' "$output" |
-        sed "s|${pattern}|${code}&${RESET}|g")
+    idx=$((idx + 1))
+    mark=${MARKS:idx-1:1}
+
+    sed_args+=(-e "s${D}${pattern}${D}${mark}&${CLOSE}${D}g")
+    colors+="${code}${SEP}"
 done
 
-printf '%s\n' "$output"
+###############################################################################
+## Apply highlights
+##
+## One streaming pipeline: scrub markers, run every substitution in a single
+## sed pass, then resolve markers to ANSI codes with a color stack so nested
+## highlights restore the enclosing color instead of clearing it.
+###############################################################################
+tr -d "$STRIP" \
+    | sed "${sed_args[@]}" \
+    | awk -v marks="$MARKS" -v cl="$CLOSE" -v sep="$SEP" \
+          -v cols="$colors" -v reset="$RESET" '
+    BEGIN { split(cols, C, sep); re = "[" marks cl "]" }
+    {
+        line = $0; out = ""; d = 0
+        while (match(line, re)) {
+            out = out substr(line, 1, RSTART - 1)
+            ch  = substr(line, RSTART, 1)
+            if (ch == cl) {
+                if (d > 0) d--
+                out = out (d > 0 ? C[st[d]] : reset)
+            } else {
+                st[++d] = index(marks, ch)
+                out = out C[st[d]]
+            }
+            line = substr(line, RSTART + 1)
+        }
+        print out line
+    }'
