@@ -1,0 +1,70 @@
+name: Shell CI
+ 
+# hl is a single extensionless bash script (shebang-detected, no .sh suffix),
+# so every job below targets it by filename rather than a glob.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hl"
+      - ".github/workflows/shell-ci.yml"
+  pull_request:
+    paths:
+      - "hl"
+      - ".github/workflows/shell-ci.yml"
+ 
+permissions:
+  contents: read
+ 
+jobs:
+  shellcheck:
+    name: Lint (ShellCheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+ 
+      # ubuntu-latest ships ShellCheck preinstalled, so no third-party action
+      # (and its supply-chain risk) is needed for this step.
+      - name: Run ShellCheck
+        run: shellcheck --shell=bash --severity=style hl
+ 
+  shfmt:
+    name: Format check (shfmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+ 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+ 
+      # Pin shfmt to a specific release so the format check doesn't drift
+      # out from under you when a new shfmt version changes its defaults.
+      - name: Install shfmt
+        run: go install mvdan.cc/sh/v3/cmd/shfmt@v3.9.0
+ 
+      # -d prints a diff and fails the job instead of rewriting the file.
+      # Flags here (-i 2 -ci) are a guess at hl's style — run
+      # `shfmt -i 2 -ci -d hl` locally first and adjust to match, or drop
+      # them to use shfmt's defaults.
+      - name: Check formatting
+        run: shfmt -i 4 -ci -d hl
+ 
+  security:
+    name: Security scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs full history to scan past commits
+ 
+      # NOTE on pinning: in March 2025, attackers compromised a different
+      # popular scanning action (tj-actions/changed-files) by repointing
+      # release tags at malicious commits. Prefer pinning third-party actions
+      # to a full commit SHA (not just a version tag) and let Dependabot bump
+      # the SHA for you. Replace the tag below once you've picked/verified one:
+      #   gitleaks/gitleaks-action@<full-commit-sha> # vX.Y.Z
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
