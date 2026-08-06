@@ -50,7 +50,7 @@
 ##
 ###############################################################################
 
-__author__ = "github.com/bytebeast"
+__author__="github.com/bytebeast"
 
 set -euo pipefail
 
