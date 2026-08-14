@@ -46,7 +46,8 @@
 ##   - The /.../ syntax is ambiguous with paths: '/usr/:red' is read as the
 ##     regex 'usr', not the literal string "/usr/". Escape the slashes
 ##     ('\/usr\/:red') or match a substring instead.
-##   - Maximum 12 pattern:color pairs per invocation.
+##   - Any number of pattern:color pairs may be given; the only ceiling is
+##     15 distinct colors, which is the whole palette.
 ##
 ###############################################################################
 
@@ -61,17 +62,32 @@ set -euo pipefail
 ## to ANSI escapes in one final pass. This stops later patterns from matching
 ## the printable characters of escape codes emitted by earlier patterns
 ## (e.g. '/[0-9]/' matching the "31" inside "\033[0;31m").
+##
+## One mark is allocated per DISTINCT COLOR, not per pattern, so the number
+## of pattern:color pairs is unbounded. MARKS holds 16 bytes and the palette
+## defines 15 colors, so the limit below cannot be reached without first
+## adding a new color to get_color().
+##
+## Every byte below must be distinct, non-printing, and covered by STRIP.
+## Octal escapes only accept digits 0-7: '\038' is NOT byte 038, bash reads
+## it as '\003' followed by a literal '8'. '\040' is a space. Do not extend
+## MARKS past '\037' with escapes of that form.
+##
+## Free bytes if more marks are ever needed: \001-\003 and \010.
+## Reserved and unusable: \000, \011 (tab), \012 (newline), \015 (CR),
+## \033 (ESC) and \016 \017 (SO/SI) - all three appear inside terminfo
+## sequences such as `tput sgr0`.
 ###############################################################################
-CLOSE=$'\020'                                             # ends a highlight
-MARKS=$'\021\022\023\024\025\026\027\030\031\032\034\035' # one per pattern
-SEP=$'\037'                                               # color-list separator
-D=$'\036'                                                 # sed s/// delimiter
-STRIP='\020-\032\034-\037'                                # scrubbed from input
+CLOSE=$'\020'                                                             # ends a highlight
+MARKS=$'\004\005\006\007\013\014\021\022\023\024\025\026\027\030\031\032' # one per color (16)
+SEP=$'\036'                                                               # color-list separator
+D=$'\037'                                                                 # sed s/// delimiter
+STRIP='\004-\007\013\014\020-\032\034-\037'                               # scrubbed from input
 
-MAX_PATTERNS=${#MARKS}
+MAX_COLORS=${#MARKS}
 
 usage() {
-    sed -n '3,45p' "$0" | sed 's/^#*//; s/^ //'
+    sed -n '3,50p' "$0" | sed 's/^#*//; s/^ //'
     exit "${1:-0}"
 }
 
@@ -96,6 +112,7 @@ if command -v tput >/dev/null 2>&1 && tput setaf 1 >/dev/null 2>&1; then
     CYAN=$(tput setaf 6)
     WHITE=$(tput setaf 7)
 
+    BRIGHT_BLACK=$BOLD$BLACK
     BRIGHT_RED=$BOLD$RED
     BRIGHT_GREEN=$BOLD$GREEN
     BRIGHT_YELLOW=$BOLD$YELLOW
@@ -115,6 +132,7 @@ else
     CYAN=$'\033[0;36m'
     WHITE=$'\033[0;37m'
 
+    BRIGHT_BLACK=$'\033[1;30m'
     BRIGHT_RED=$'\033[1;31m'
     BRIGHT_GREEN=$'\033[1;32m'
     BRIGHT_YELLOW=$'\033[1;33m'
@@ -137,6 +155,7 @@ get_color() {
         cyan) printf '%s' "$CYAN" ;;
         white) printf '%s' "$WHITE" ;;
 
+        bright_black | bblack) printf '%s' "$BRIGHT_BLACK" ;;
         bright_red | bred) printf '%s' "$BRIGHT_RED" ;;
         bright_green | bgreen) printf '%s' "$BRIGHT_GREEN" ;;
         bright_yellow | byellow) printf '%s' "$BRIGHT_YELLOW" ;;
@@ -171,11 +190,25 @@ case "${1:-}" in
     -h | --help) usage 0 ;;
 esac
 
-[[ $# -gt $MAX_PATTERNS ]] && die "too many patterns (max $MAX_PATTERNS)"
-
+###############################################################################
+## Colors are interned: repeated colors reuse the same mark, so 40 patterns
+## sharing 3 colors need only 3 marks. Linear search keeps this bash 3.2 safe
+## (no associative arrays).
+###############################################################################
 sed_args=()
 colors=""
-idx=0
+color_codes=()
+
+color_index() {
+    local i
+    for ((i = 0; i < ${#color_codes[@]}; i++)); do
+        [[ ${color_codes[i]} == "$1" ]] && {
+            printf '%s' "$((i + 1))"
+            return 0
+        }
+    done
+    return 1
+}
 
 for pair in "$@"; do
     [[ "$pair" == *:* ]] || die "missing color in '$pair' (expected pattern:color)"
@@ -199,11 +232,17 @@ for pair in "$@"; do
         pattern=$(escape_bre "$word")
     fi
 
-    idx=$((idx + 1))
-    mark=${MARKS:idx-1:1}
+    # Reuse this color's mark if seen before, otherwise allocate the next one.
+    if ! cidx=$(color_index "$code"); then
+        [[ ${#color_codes[@]} -lt $MAX_COLORS ]] ||
+            die "too many distinct colors (max $MAX_COLORS)"
+        color_codes+=("$code")
+        cidx=${#color_codes[@]}
+        colors+="${code}${SEP}"
+    fi
 
+    mark=${MARKS:cidx-1:1}
     sed_args+=(-e "s${D}${pattern}${D}${mark}&${CLOSE}${D}g")
-    colors+="${code}${SEP}"
 done
 
 ###############################################################################
