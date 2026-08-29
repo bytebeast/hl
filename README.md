@@ -127,16 +127,24 @@ grep -i "timeout" server.log | hl timeout:bred
 
 ## Colors
 
-| Name      | Alias | Name             | Alias      |
-| --------- | ----- | ---------------- | ---------- |
-| `black`   |       | `bright_red`     | `bred`     |
-| `red`     |       | `bright_green`   | `bgreen`   |
-| `green`   |       | `bright_yellow`  | `byellow`  |
-| `yellow`  |       | `bright_blue`    | `bblue`    |
-| `blue`    |       | `bright_magenta` | `bmagenta` |
-| `magenta` |       | `bright_cyan`    | `bcyan`    |
-| `cyan`    |       |                  |            |
-| `white`   |       |                  |            |
+| Name             | Alias      |
+| ---------------- | ---------- |
+| `black`          |            |
+| `red`            |            |
+| `green`          |            |
+| `yellow`         |            |
+| `blue`           |            |
+| `magenta`        |            |
+| `cyan`           |            |
+| `white`          |            |
+| `bright_black`   | `bblack`   |
+| `bright_red`     | `bred`     |
+| `bright_green`   | `bgreen`   |
+| `bright_yellow`  | `byellow`  |
+| `bright_blue`    | `bblue`    |
+| `bright_magenta` | `bmagenta` |
+| `bright_cyan`    | `bcyan`    |
+| `bright_white`   | `bwhite`   |
 
 ## Regex support
 
