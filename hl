@@ -119,6 +119,7 @@ if command -v tput >/dev/null 2>&1 && tput setaf 1 >/dev/null 2>&1; then
     BRIGHT_BLUE=$BOLD$BLUE
     BRIGHT_MAGENTA=$BOLD$MAGENTA
     BRIGHT_CYAN=$BOLD$CYAN
+    BRIGHT_WHITE=$BOLD$WHITE
 else
     RESET=$'\033[0m'
     BOLD=$'\033[1m'
@@ -139,6 +140,7 @@ else
     BRIGHT_BLUE=$'\033[1;34m'
     BRIGHT_MAGENTA=$'\033[1;35m'
     BRIGHT_CYAN=$'\033[1;36m'
+    BRIGHT_WHITE=$'\033[1;37m'
 fi
 
 ###############################################################################
@@ -162,6 +164,7 @@ get_color() {
         bright_blue | bblue) printf '%s' "$BRIGHT_BLUE" ;;
         bright_magenta | bmagenta) printf '%s' "$BRIGHT_MAGENTA" ;;
         bright_cyan | bcyan) printf '%s' "$BRIGHT_CYAN" ;;
+        bright_white | bwhite) printf '%s' "$BRIGHT_WHITE" ;;
 
         *) return 1 ;;
     esac
