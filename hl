@@ -14,7 +14,13 @@
 ##        hl '/H[0-9]/':blue
 ##
 ## USAGE:
-##   echo "text" | hl pattern:color [pattern:color ...]
+##   echo "text" | hl [-u] pattern:color [pattern:color ...]
+##
+## OPTIONS:
+##   -u, --line-buffered   flush every line, for live pipelines that continue
+##                         after hl (tail -f log | hl ERROR:red | grep x).
+##                         Automatic when output is a terminal.
+##   -h, --help            show this help
 ##
 ## EXAMPLES:
 ##   echo "The car is an H1 model" | hl car:red
@@ -87,7 +93,9 @@ STRIP='\004-\007\013\014\020-\032\034-\037'                               # scru
 MAX_COLORS=${#MARKS}
 
 usage() {
-    sed -n '3,50p' "$0" | sed 's/^#*//; s/^ //'
+    # Everything between the opening banner and the next one, so the help can
+    # grow without this line range going stale.
+    sed -n '3,/^#\{20,\}$/p' "$0" | sed '$d; s/^#*//; s/^ //'
     exit "${1:-0}"
 }
 
@@ -189,9 +197,29 @@ escape_bre() {
     exec cat
 }
 
-case "${1:-}" in
-    -h | --help) usage 0 ;;
-esac
+# Line buffering (see "Streaming" below): on by default when stdout is a
+# terminal, which covers `tail -f | hl`; -u / --line-buffered forces it for
+# pipelines such as `tail -f log | hl ERROR:red | grep ...`.
+LINE_BUFFERED=0
+LINE_BUFFERED_ASKED=0
+[[ -t 1 ]] && LINE_BUFFERED=1
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h | --help) usage 0 ;;
+        -u | --line-buffered)
+            LINE_BUFFERED=1
+            LINE_BUFFERED_ASKED=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *) break ;;
+    esac
+done
+[[ $# -gt 0 ]] || die "no pattern:color given"
 
 ###############################################################################
 ## Colors are interned: repeated colors reuse the same mark, so 40 patterns
@@ -254,11 +282,46 @@ done
 ## One streaming pipeline: scrub markers, run every substitution in a single
 ## sed pass, then resolve markers to ANSI codes with a color stack so nested
 ## highlights restore the enclosing color instead of clearing it.
+##
+## Streaming: every stage must pass each line on as soon as it has it, or
+## `tail -f | hl` shows nothing until a buffer (4-64 KB) fills. tr has no
+## line-buffered mode at all, so input scrubbing happens inside sed instead;
+## sed gets -u (GNU, FreeBSD/macOS) or -l (older BSD); mawk, Debian/Ubuntu's
+## default awk, also buffers INPUT from a pipe unless given -W interactive;
+## and every awk flushes after each line.
 ###############################################################################
-tr -d "$STRIP" |
-    sed "${sed_args[@]}" |
-    awk -v marks="$MARKS" -v cl="$CLOSE" -v sep="$SEP" \
-        -v cols="$colors" -v reset="$RESET" '
+## Flushing per line costs throughput (about 7x on a 200k-line file), so it
+## is only done when LINE_BUFFERED is set: by default when stdout is a
+## terminal, or with -u / --line-buffered.
+SED_STREAM=()
+AWK_STREAM=()
+if [[ $LINE_BUFFERED -eq 1 ]]; then
+    if sed -u -n '' </dev/null >/dev/null 2>&1; then
+        SED_STREAM=(-u)
+    elif sed -l -n '' </dev/null >/dev/null 2>&1; then
+        SED_STREAM=(-l)
+    elif [[ $LINE_BUFFERED_ASKED -eq 1 ]]; then
+        # BusyBox sed (Alpine, most minimal images) has neither flag, so its
+        # output stays block-buffered. Say so when -u was explicitly asked
+        # for, rather than silently not doing it.
+        printf '%s\n' "hl: this sed cannot line-buffer; output may lag" \
+            "    (install GNU sed, e.g. 'apk add sed' on Alpine)" >&2
+    fi
+    case "$(awk -W version </dev/null 2>&1 || true)" in
+        *mawk*) AWK_STREAM=(-W interactive) ;;
+    esac
+fi
+
+# Delete marker bytes from the input (same set as STRIP, listed byte by byte
+# so no locale-dependent range is involved).
+STRIP_EXPR=$'s/[\004\005\006\007\013\014\020\021\022\023\024\025\026\027\030\031\032\034\035\036\037]//g'
+
+# ${a[@]+"${a[@]}"} expands an empty array to nothing; plain "${a[@]}" is an
+# "unbound variable" error under set -u on bash < 4.4.
+sed ${SED_STREAM[@]+"${SED_STREAM[@]}"} -e "$STRIP_EXPR" "${sed_args[@]}" |
+    awk ${AWK_STREAM[@]+"${AWK_STREAM[@]}"} \
+        -v marks="$MARKS" -v cl="$CLOSE" -v sep="$SEP" \
+        -v cols="$colors" -v reset="$RESET" -v flush="$LINE_BUFFERED" '
     BEGIN { split(cols, C, sep); re = "[" marks cl "]" }
     {
         line = $0; out = ""; d = 0
@@ -275,4 +338,5 @@ tr -d "$STRIP" |
             line = substr(line, RSTART + 1)
         }
         print out line
+        if (flush) fflush()
     }'

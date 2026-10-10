@@ -30,15 +30,16 @@ life.
 
 - **Literal or regex matching** - plain words by default, or wrap a pattern in
   `/.../` for `sed` BRE regex
-- **Multiple patterns per call**, applied left to right (up to 12)
+- **Multiple patterns per call**, applied left to right (any number, up to 15 distinct colors)
 - **Overlapping matches nest** - when one pattern highlights inside another, the
   outer color is restored afterwards instead of being cleared
 - **14 colors**, including bright variants with short aliases (`bred`, `bgreen`,
   ...)
 - **Zero dependencies** - pure Bash + `sed` + `awk` + `tput`/ANSI, nothing to
   install
-- **Streaming** - output appears line by line, so `tail -f | hl` and other live
-  pipelines work as you would expect
+- **Streaming** - when the output is your terminal, each line appears as soon
+  as it arrives, so `tail -f | hl` works as you would expect; add `-u` when hl
+  feeds another live command (`tail -f log | hl -u ERROR:red | grep ...`)
 - **Pipe-friendly** - reads stdin, writes stdout, plays nicely with `tail`,
   `grep`, `journalctl`, CI logs, anything text-based
 
@@ -50,6 +51,10 @@ life.
 - `tput` (optional - falls back to raw ANSI escape codes if unavailable)
 
 No package manager, no runtime, no build step.
+
+> **Alpine / BusyBox note:** BusyBox `sed` cannot line-buffer, so live output
+> (`tail -f | hl`) may arrive in bursts; `hl -u` warns about it. Everything else
+> works. `apk add sed` installs GNU sed and fixes it.
 
 > **macOS note:** `hl` works with the system BSD `sed`, but a few regex
 > constructs (`\|`, `\+`, `\?`) are GNU extensions and will not match under it.
@@ -83,9 +88,18 @@ hl <<< "installed correctly"
 ## Usage
 
 ```
-echo "text" | hl pattern:color [pattern:color ...]
+echo "text" | hl [-u] pattern:color [pattern:color ...]
 hl -h | --help
 ```
+
+| Option                  | Meaning                                                                 |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `-u`, `--line-buffered` | Flush every line. Automatic when output is a terminal; use it when hl feeds another command in a live pipeline |
+| `--`                    | End of options (for a pattern that starts with `-`)                     |
+| `-h`, `--help`          | Show help                                                               |
+
+Line buffering costs throughput (several times slower on large files), which is
+why it is off when the output is a file or a pipe unless you ask for it.
 
 - **Literal match** (default): `hl word:red`
 - **Regex match** (wrap the pattern in `/.../`, `sed` BRE syntax):
@@ -94,8 +108,10 @@ hl -h | --help
 The color is taken from the **last** colon in the argument, so patterns may
 contain colons themselves (`hl 'level:error:bred'` highlights `level:error`).
 
-Bad input is a hard error: an unknown color, a missing colon, or more than 12
-patterns exits with status `2` and a message on stderr.
+Bad input is a hard error: an unknown color, a missing colon or an empty pattern
+exits with status `2` and a message on stderr. There is no limit on the number
+of patterns; colors are shared, so the only ceiling is the 15 distinct colors in
+the palette.
 
 ### Examples
 
@@ -111,6 +127,9 @@ echo "The car is an H1 model" | hl car:red model:green '/H[0-9]/':blue
 
 # Tail a log and flag errors/warnings in bright colors
 tail -f app.log | hl ERROR:bred WARN:byellow INFO:cyan
+
+# ...and keep it live through a further filter
+tail -f app.log | hl -u ERROR:bred | grep -v healthcheck
 
 # Alternation (GNU sed)
 journalctl -f | hl '/error\|fatal\|panic/':bred
@@ -191,7 +210,15 @@ BRE - you escape them to make them special, which is the opposite of PCRE.
 - **`.` and negated classes like `[^x]` can match the internal marker bytes**
   `hl` uses to track highlights, which can produce odd output when combined with
   earlier patterns.
-- **Maximum 12 `pattern:color` pairs** per invocation.
+- **At most 15 distinct colors** per invocation (the whole palette); any number
+  of patterns can share them.
+
+## Tests
+
+```bash
+./tests/test.sh                 # plain Bash, no dependencies
+AWK=gawk ./tests/test.sh        # run hl's pipeline under a specific awk
+```
 
 ## Contributing
 
